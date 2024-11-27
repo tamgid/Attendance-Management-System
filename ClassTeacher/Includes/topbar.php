@@ -1,14 +1,14 @@
 
 <?php 
 
-  $query = "SELECT * FROM tblclassteacher WHERE Id = ".$_SESSION['userId']."";
+  $query = "SELECT * FROM teacher WHERE Id = ".$_SESSION['userId']."";
   $rs = $conn->query($query);
   $num = $rs->num_rows;
   $rows = $rs->fetch_assoc();
-  $fullName = $rows['firstName']." ".$rows['lastName'];;
+  $fullName = $rows['teacher_firstName']." ".$rows['teacher_lastName'];;
 
 ?>
-<nav class="navbar navbar-expand navbar-light bg-gradient-primary topbar mb-4 static-top">
+<nav class="navbar navbar-expand navbar-light topbar mb-4 static-top"  style="background-color: #6777EF;">
           <button id="sidebarToggleTop" class="btn btn-link rounded-circle mr-3">
             <i class="fa fa-bars"></i>
           </button>
@@ -40,7 +40,7 @@
             <li class="nav-item dropdown no-arrow">
               <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-toggle="dropdown"
                 aria-haspopup="true" aria-expanded="false">
-                <img class="img-profile rounded-circle" src="img/user-icn.png" style="max-width: 60px">
+                <img class="img-profile rounded-circle" src="img/logo.png" style="max-width: 60px">
                 <span class="ml-2 d-none d-lg-inline text-white small"><b>Welcome <?php echo $fullName;?></b></span>
               </a>
               <div class="dropdown-menu dropdown-menu-right shadow animated--grow-in" aria-labelledby="userDropdown">

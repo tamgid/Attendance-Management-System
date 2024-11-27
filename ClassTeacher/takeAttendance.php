@@ -1,94 +1,107 @@
-
-<?php 
+<?php
 error_reporting(0);
 include '../Includes/dbcon.php';
 include '../Includes/session.php';
 
-    $query = "SELECT tblclass.className,tblclassarms.classArmName 
-    FROM tblclassteacher
-    INNER JOIN tblclass ON tblclass.Id = tblclassteacher.classId
-    INNER JOIN tblclassarms ON tblclassarms.Id = tblclassteacher.classArmId
-    Where tblclassteacher.Id = '$_SESSION[userId]'";
-    $rs = $conn->query($query);
-    $num = $rs->num_rows;
-    $rrw = $rs->fetch_assoc();
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $data = json_decode(file_get_contents("php://input"), true);
+  $response = ['success' => false, 'message' => ''];
 
+  if (isset($data['teacher_id'], $data['course_id'], $data['attendance_date'], $data['attendance'])) {
+    $teacher_id = $conn->real_escape_string($data['teacher_id']);
+    $course_id = $conn->real_escape_string($data['course_id']);
+    $attendance_date = $conn->real_escape_string($data['attendance_date']);
+    $attendance = $data['attendance'];
 
-//session and Term
-        $querey=mysqli_query($conn,"select * from tblsessionterm where isActive ='1'");
-        $rwws=mysqli_fetch_array($querey);
-        $sessionTermId = $rwws['Id'];
+    foreach ($attendance as $record) {
+      $student_id = $conn->real_escape_string($record['student_id']);
+      $status = $conn->real_escape_string($record['status']);
 
-        $dateTaken = date("Y-m-d");
+      $query = "
+                INSERT INTO attendance (student_id, teacher_id, course_id, status, attendance_date)
+                VALUES ('$student_id', '$teacher_id', '$course_id', '$status', '$attendance_date')
+                ON DUPLICATE KEY UPDATE status = '$status'
+            ";
 
-        $qurty=mysqli_query($conn,"select * from tblattendance  where classId = '$_SESSION[classId]' and classArmId = '$_SESSION[classArmId]' and dateTimeTaken='$dateTaken'");
-        $count = mysqli_num_rows($qurty);
+      $result = $conn->query($query);
+      if (!$result) {
+        error_log("SQL Error: " . $conn->error . " Query: " . $query);
+        $response['message'] = "SQL Error: " . $conn->error;
+        echo json_encode($response);
+        exit;
+      }
+    }
 
-        if($count == 0){ //if Record does not exsit, insert the new record
-
-          //insert the students record into the attendance table on page load
-          $qus=mysqli_query($conn,"select * from tblstudents  where classId = '$_SESSION[classId]' and classArmId = '$_SESSION[classArmId]'");
-          while ($ros = $qus->fetch_assoc())
-          {
-              $qquery=mysqli_query($conn,"insert into tblattendance(admissionNo,classId,classArmId,sessionTermId,status,dateTimeTaken) 
-              value('$ros[admissionNumber]','$_SESSION[classId]','$_SESSION[classArmId]','$sessionTermId','0','$dateTaken')");
-
-          }
-        }
-
-  
-      
-
-
-
-if(isset($_POST['save'])){
-    
-    $admissionNo=$_POST['admissionNo'];
-
-    $check=$_POST['check'];
-    $N = count($admissionNo);
-    $status = "";
-
-
-//check if the attendance has not been taken i.e if no record has a status of 1
-  $qurty=mysqli_query($conn,"select * from tblattendance  where classId = '$_SESSION[classId]' and classArmId = '$_SESSION[classArmId]' and dateTimeTaken='$dateTaken' and status = '1'");
-  $count = mysqli_num_rows($qurty);
-
-  if($count > 0){
-
-      $statusMsg = "<div class='alert alert-danger' style='margin-right:700px;'>Attendance has been taken for today!</div>";
-
+    $response['success'] = true;
+    $response['message'] = "Attendance saved successfully!";
+  } else {
+    $response['message'] = "Invalid data received.";
   }
 
-    else //update the status to 1 for the checkboxes checked
-    {
-
-        for($i = 0; $i < $N; $i++)
-        {
-                $admissionNo[$i]; //admission Number
-
-                if(isset($check[$i])) //the checked checkboxes
-                {
-                      $qquery=mysqli_query($conn,"update tblattendance set status='1' where admissionNo = '$check[$i]'");
-
-                      if ($qquery) {
-
-                          $statusMsg = "<div class='alert alert-success'  style='margin-right:700px;'>Attendance Taken Successfully!</div>";
-                      }
-                      else
-                      {
-                          $statusMsg = "<div class='alert alert-danger' style='margin-right:700px;'>An error Occurred!</div>";
-                      }
-                  
-                }
-          }
-      }
-
-   
-
+  echo json_encode($response);
+  exit;
 }
 
+// Fetch courses taught by the teacher
+$query_courses = "
+    SELECT course.course_code, course.course_name, course_teacher.semester, course_teacher.session, course_teacher.course_id
+    FROM course_teacher
+    INNER JOIN course ON course.Id = course_teacher.course_id
+    WHERE course_teacher.teacher_id = '$_SESSION[userId]'
+";
+$rs_courses = $conn->query($query_courses);
 
+if (isset($_GET['course_id']) && isset($_GET['semester']) && isset($_GET['session'])) {
+  $course_id = $conn->real_escape_string($_GET['course_id']);
+  $semester = $conn->real_escape_string($_GET['semester']);
+  $session = $conn->real_escape_string($_GET['session']);
+
+  $query_students = "
+        SELECT course_student.student_id
+        FROM course_student
+        WHERE course_student.course_id = '$course_id'
+        AND course_student.semester = '$semester'
+        AND course_student.session = '$session'
+    ";
+
+  $rs_students = $conn->query($query_students);
+  $students_html = "";
+
+  if ($rs_students->num_rows > 0) {
+    $sn = 1;
+    while ($row = $rs_students->fetch_assoc()) {
+      $student_id = $row['student_id'];
+
+      $query_student_details = "
+                SELECT student_firstName, student_lastName, student_id, student_semester, student_session
+                FROM student
+                WHERE student_id = '$student_id'
+            ";
+      $rs_student_details = $conn->query($query_student_details);
+      $student_row = $rs_student_details->fetch_assoc();
+
+      $students_html .= "
+                <tr>
+                    <td>$sn</td>
+                    <td>" . htmlspecialchars($student_row['student_firstName']) . "</td>
+                    <td>" . htmlspecialchars($student_row['student_lastName']) . "</td>
+                    <td>
+                        <input type='hidden' class='student-id' value='" . htmlspecialchars($student_row['student_id']) . "'>
+                        " . htmlspecialchars($student_row['student_id']) . "
+                    </td>
+                    <td>" . htmlspecialchars($student_row['student_semester']) . "</td>
+                    <td>" . htmlspecialchars($student_row['student_session']) . "</td>
+                    <td><input type='checkbox' class='attendance-checkbox' style='width: 15px; height: 15px;'></td>
+                </tr>";
+      $sn++;
+    }
+  } else {
+    $students_html = "<tr><td colspan='7'>No students found</td></tr>";
+  }
+
+  echo $students_html;
+  exit;
+}
 ?>
 
 <!DOCTYPE html>
@@ -98,166 +111,92 @@ if(isset($_POST['save'])){
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta name="description" content="">
-  <meta name="author" content="">
   <link href="img/logo/attnlg.jpg" rel="icon">
   <title>Dashboard</title>
   <link href="../vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
   <link href="../vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet" type="text/css">
   <link href="css/ruang-admin.min.css" rel="stylesheet">
-
-
-
-   <script>
-    function classArmDropdown(str) {
-    if (str == "") {
-        document.getElementById("txtHint").innerHTML = "";
-        return;
-    } else { 
-        if (window.XMLHttpRequest) {
-            // code for IE7+, Firefox, Chrome, Opera, Safari
-            xmlhttp = new XMLHttpRequest();
-        } else {
-            // code for IE6, IE5
-            xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
-        }
-        xmlhttp.onreadystatechange = function() {
-            if (this.readyState == 4 && this.status == 200) {
-                document.getElementById("txtHint").innerHTML = this.responseText;
-            }
-        };
-        xmlhttp.open("GET","ajaxClassArms2.php?cid="+str,true);
-        xmlhttp.send();
-    }
-}
-</script>
 </head>
 
 <body id="page-top">
   <div id="wrapper">
-    <!-- Sidebar -->
-      <?php include "Includes/sidebar.php";?>
-    <!-- Sidebar -->
+    <?php include "Includes/sidebar.php"; ?>
     <div id="content-wrapper" class="d-flex flex-column">
       <div id="content">
-        <!-- TopBar -->
-       <?php include "Includes/topbar.php";?>
-        <!-- Topbar -->
-
-        <!-- Container Fluid-->
+        <?php include "Includes/topbar.php"; ?>
         <div class="container-fluid" id="container-wrapper">
           <div class="d-sm-flex align-items-center justify-content-between mb-4">
-            <h1 class="h3 mb-0 text-gray-800">Take Attendance (Today's Date : <?php echo $todaysDate = date("m-d-Y");?>)</h1>
+            <h1 class="h4 mb-0 text-gray-800">Take Attendance</h1>
             <ol class="breadcrumb">
               <li class="breadcrumb-item"><a href="./">Home</a></li>
-              <li class="breadcrumb-item active" aria-current="page">All Student in Class</li>
+              <li class="breadcrumb-item active" aria-current="page">Attendance</li>
             </ol>
           </div>
 
-          <div class="row">
-            <div class="col-lg-12">
-              <!-- Form Basic -->
+          <!-- Courses Taught by the Teacher -->
+          <div class="row justify-content-center">
+            <?php while ($course = $rs_courses->fetch_assoc()): ?>
+              <div class="col-lg-3 col-md-4 col-sm-6 mb-4">
+                <div class="card text-center border-primary shadow-sm h-100">
+                  <div class="card-body d-flex flex-column justify-content-center align-items-center">
+                    <h6 class="card-title text-primary">
+                      <i class="fas fa-book mr-2"></i>
+                      <?php echo $course['course_code']; ?>
+                    </h6>
+                    <p class="text-muted">
+                      <?php echo $course['semester']; ?>th Semester <br> <?php echo $course['session']; ?>
+                    </p>
+                    <button
+                      class="btn btn-primary btn-sm rounded-pill mt-auto"
+                      onclick="showStudents(<?php echo $course['course_id']; ?>, '<?php echo $course['semester']; ?>', '<?php echo $course['session']; ?>')">
+                      View Students
+                    </button>
+                  </div>
+                </div>
+              </div>
+            <?php endwhile; ?>
+          </div>
 
-
-              <!-- Input Group -->
-        <form method="post">
+          <div id="students-list" style="display:none;">
             <div class="row">
               <div class="col-lg-12">
-              <div class="card mb-4">
-                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-                  <h6 class="m-0 font-weight-bold text-primary">All Student in (<?php echo $rrw['className'].' - '.$rrw['classArmName'];?>) Class</h6>
-                  <h6 class="m-0 font-weight-bold text-danger">Note: <i>Click on the checkboxes besides each student to take attendance!</i></h6>
-                </div>
-                <div class="table-responsive p-3">
-                <?php echo $statusMsg; ?>
-                  <table class="table align-items-center table-flush table-hover">
-                    <thead class="thead-light">
-                      <tr>
-                        <th>#</th>
-                        <th>First Name</th>
-                        <th>Last Name</th>
-                        <th>Other Name</th>
-                        <th>Admission No</th>
-                        <th>Class</th>
-                        <th>Class Arm</th>
-                        <th>Check</th>
-                      </tr>
-                    </thead>
-                    
-                    <tbody>
-
-                  <?php
-                      $query = "SELECT tblstudents.Id,tblstudents.admissionNumber,tblclass.className,tblclass.Id As classId,tblclassarms.classArmName,tblclassarms.Id AS classArmId,tblstudents.firstName,
-                      tblstudents.lastName,tblstudents.otherName,tblstudents.admissionNumber,tblstudents.dateCreated
-                      FROM tblstudents
-                      INNER JOIN tblclass ON tblclass.Id = tblstudents.classId
-                      INNER JOIN tblclassarms ON tblclassarms.Id = tblstudents.classArmId
-                      where tblstudents.classId = '$_SESSION[classId]' and tblstudents.classArmId = '$_SESSION[classArmId]'";
-                      $rs = $conn->query($query);
-                      $num = $rs->num_rows;
-                      $sn=0;
-                      $status="";
-                      if($num > 0)
-                      { 
-                        while ($rows = $rs->fetch_assoc())
-                          {
-                             $sn = $sn + 1;
-                            echo"
-                              <tr>
-                                <td>".$sn."</td>
-                                <td>".$rows['firstName']."</td>
-                                <td>".$rows['lastName']."</td>
-                                <td>".$rows['otherName']."</td>
-                                <td>".$rows['admissionNumber']."</td>
-                                <td>".$rows['className']."</td>
-                                <td>".$rows['classArmName']."</td>
-                                <td><input name='check[]' type='checkbox' value=".$rows['admissionNumber']." class='form-control'></td>
-                              </tr>";
-                              echo "<input name='admissionNo[]' value=".$rows['admissionNumber']." type='hidden' class='form-control'>";
-                          }
-                      }
-                      else
-                      {
-                           echo   
-                           "<div class='alert alert-danger' role='alert'>
-                            No Record Found!
-                            </div>";
-                      }
-                      
-                      ?>
-                    </tbody>
-                  </table>
-                  <br>
-                  <button type="submit" name="save" class="btn btn-primary">Take Attendance</button>
-                  </form>
+                <div class="card mb-4">
+                  <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary">Students Enrolled</h6>
+                  </div>
+                  <div class="table-responsive p-3">
+                    <form id="attendanceForm">
+                      <table class="table align-items-center table-flush table-hover" id="dataTableHover">
+                        <thead class="thead-light">
+                          <tr>
+                            <th>#</th>
+                            <th>First Name</th>
+                            <th>Last Name</th>
+                            <th>Student ID</th>
+                            <th>Semester</th>
+                            <th>Session</th>
+                            <th>Attendance</th>
+                          </tr>
+                        </thead>
+                        <tbody id="students-table-body">
+                          <!-- Students will be loaded dynamically -->
+                        </tbody>
+                      </table>
+                      <div class="text-center mt-3">
+                        <button type="button" class="btn btn-success" onclick="submitAttendance()">Submit Attendance</button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>
-            </div>
           </div>
-          <!--Row-->
-
-          <!-- Documentation Link -->
-          <!-- <div class="row">
-            <div class="col-lg-12 text-center">
-              <p>For more documentations you can visit<a href="https://getbootstrap.com/docs/4.3/components/forms/"
-                  target="_blank">
-                  bootstrap forms documentations.</a> and <a
-                  href="https://getbootstrap.com/docs/4.3/components/input-group/" target="_blank">bootstrap input
-                  groups documentations</a></p>
-            </div>
-          </div> -->
-
         </div>
-        <!---Container Fluid-->
       </div>
-      <!-- Footer -->
-       <?php include "Includes/footer.php";?>
-      <!-- Footer -->
+      <?php include "Includes/footer.php"; ?>
     </div>
   </div>
 
-  <!-- Scroll to top -->
   <a class="scroll-to-top rounded" href="#page-top">
     <i class="fas fa-angle-up"></i>
   </a>
@@ -266,17 +205,77 @@ if(isset($_POST['save'])){
   <script src="../vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
   <script src="../vendor/jquery-easing/jquery.easing.min.js"></script>
   <script src="js/ruang-admin.min.js"></script>
-   <!-- Page level plugins -->
-  <script src="../vendor/datatables/jquery.dataTables.min.js"></script>
-  <script src="../vendor/datatables/dataTables.bootstrap4.min.js"></script>
 
-  <!-- Page level custom scripts -->
   <script>
-    $(document).ready(function () {
-      $('#dataTable').DataTable(); // ID From dataTable 
-      $('#dataTableHover').DataTable(); // ID From dataTable with Hover
-    });
+    // Store selected course details globally
+    let selectedCourseId = null;
+    let selectedSemester = null;
+    let selectedSession = null;
+
+    function showStudents(course_id, semester, session) {
+      // Store the selected course details
+      selectedCourseId = course_id;
+      selectedSemester = semester;
+      selectedSession = session;
+
+      $('#students-list').show();
+      $.ajax({
+        url: "",
+        type: "GET",
+        data: {
+          course_id,
+          semester,
+          session
+        },
+        success: function(response) {
+          $('#students-table-body').html(response);
+        }
+      });
+    }
+
+    function submitAttendance() {
+      const attendanceData = [];
+      $('#students-table-body tr').each(function() {
+        const row = $(this);
+        const studentId = row.find('.student-id').val();
+        const status = row.find('.attendance-checkbox').is(':checked') ? 1 : 0;
+        attendanceData.push({
+          student_id: studentId,
+          status
+        });
+      });
+
+      // Use the globally stored courseId
+      const teacherId = "<?php echo $_SESSION['userId']; ?>";
+      const courseId = selectedCourseId; // This comes from the button click
+      const attendanceDate = new Date().toISOString().slice(0, 10);
+
+      $.ajax({
+        url: "",
+        type: "POST",
+        contentType: "application/json",
+        data: JSON.stringify({
+          teacher_id: teacherId,
+          course_id: courseId,
+          attendance_date: attendanceDate,
+          attendance: attendanceData,
+        }),
+        success: function(response) {
+          const res = JSON.parse(response);
+          alert(res.message);
+
+          if (res.success) {
+            // Uncheck all checkboxes
+            $('.attendance-checkbox').prop('checked', false);
+          }
+        },
+        error: function() {
+          alert("Failed to submit attendance. Please try again.");
+        }
+      });
+    }
   </script>
+
 </body>
 
 </html>
